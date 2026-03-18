@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>codemode &mdash; Code Execution with MCP</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0f;
+  --surface: #12121a;
+  --surface-2: #1a1a26;
+  --border: #2a2a3a;
+  --border-bright: #3a3a5a;
+  --text: #e8e8f0;
+  --text-dim: #8888a0;
+  --text-muted: #555570;
+  --accent: #00d4aa;
+  --accent-2: #7c5cfc;
+  --accent-3: #ff6b6b;
+  --accent-4: #ffd93d;
+  --accent-5: #4ea8ff;
+  --glass: rgba(18, 18, 26, 0.9);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { font-family: 'Outfit', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+code, pre, .mono { font-family: 'JetBrains Mono', monospace; }
+.container { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--glass); backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 2rem;
+  display: flex; align-items: center; gap: 2rem;
+}
+nav .logo { font-weight: 700; font-size: 1rem; color: var(--accent); }
+nav a { color: var(--text-dim); text-decoration: none; font-size: 0.8rem; transition: color 0.2s; }
+nav a:hover { color: var(--accent); }
+
+section { padding: 5rem 0 3rem; border-bottom: 1px solid var(--border); }
+section:first-of-type { padding-top: 6rem; }
+h1 { font-size: 2.8rem; font-weight: 800; margin-bottom: 0.5rem; letter-spacing: -0.02em; }
+h2 { font-size: 1.8rem; font-weight: 700; margin-bottom: 1.5rem; color: var(--accent); }
+h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
+.subtitle { color: var(--text-dim); font-size: 1.1rem; margin-bottom: 2rem; max-width: 700px; }
+
+.code-block {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1rem 1.25rem;
+  font-size: 0.75rem; line-height: 1.7; overflow-x: auto; margin: 0.5rem 0;
+}
+.code-block .cmt { color: #555570; }
+.code-block .kw { color: var(--accent-2); }
+.code-block .str { color: var(--accent); }
+.code-block .fn { color: var(--accent-5); }
+.code-block .num { color: var(--accent-4); }
+.code-block .var { color: var(--accent-3); }
+.code-block .op { color: var(--text-dim); }
+
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 1.25rem; transition: border-color 0.3s;
+}
+.card:hover { border-color: var(--border-bright); }
+.card .card-icon { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+.card .card-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.75rem; }
+.card .card-title { font-weight: 600; font-size: 0.95rem; }
+.card .card-body { color: var(--text-dim); font-size: 0.82rem; line-height: 1.7; }
+
+.tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+.tag-green { background: rgba(0,212,170,0.15); color: var(--accent); }
+.tag-purple { background: rgba(124,92,252,0.15); color: var(--accent-2); }
+.tag-blue { background: rgba(78,168,255,0.15); color: var(--accent-5); }
+.tag-yellow { background: rgba(255,217,61,0.15); color: var(--accent-4); }
+.tag-red { background: rgba(255,107,107,0.15); color: var(--accent-3); }
+
+.highlight-box { border-radius: 12px; padding: 1.25rem; margin: 1rem 0; border: 1px solid; }
+.highlight-box.green { background: rgba(0,212,170,0.05); border-color: rgba(0,212,170,0.2); }
+.highlight-box.purple { background: rgba(124,92,252,0.05); border-color: rgba(124,92,252,0.2); }
+
+.flow { display: flex; flex-direction: column; gap: 0; }
+.flow-step { display: grid; grid-template-columns: 50px 1fr; gap: 1.25rem; }
+.flow-step .marker { display: flex; flex-direction: column; align-items: center; }
+.flow-step .num { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; flex-shrink: 0; z-index: 2; }
+.flow-step .line { width: 2px; flex: 1; min-height: 20px; }
+.flow-step:last-child .line { display: none; }
+.flow-step .content { padding-bottom: 1.75rem; }
+.flow-step .title { font-weight: 700; font-size: 1rem; margin-bottom: 0.3rem; }
+.flow-step .desc { color: var(--text-dim); font-size: 0.82rem; margin-bottom: 0.5rem; }
+
+.s1 .num { background: var(--accent); color: var(--bg); }
+.s1 .line { background: linear-gradient(to bottom, var(--accent), var(--accent-5)); }
+.s2 .num { background: var(--accent-5); color: var(--bg); }
+.s2 .line { background: linear-gradient(to bottom, var(--accent-5), var(--accent-2)); }
+.s3 .num { background: var(--accent-2); color: white; }
+.s3 .line { background: linear-gradient(to bottom, var(--accent-2), var(--accent-4)); }
+.s4 .num { background: var(--accent-4); color: var(--bg); }
+.s4 .line { background: linear-gradient(to bottom, var(--accent-4), var(--accent-3)); }
+.s5 .num { background: var(--accent-3); color: white; }
+.s5 .line { background: linear-gradient(to bottom, var(--accent-3), var(--accent)); }
+.s6 .num { background: var(--accent); color: var(--bg); }
+
+.rpc-flow { display: flex; align-items: center; gap: 0; margin: 1.5rem 0; flex-wrap: wrap; justify-content: center; }
+.rpc-box { padding: 0.75rem 1.25rem; border-radius: 10px; border: 1px solid var(--border); text-align: center; min-width: 150px; }
+.rpc-box .rpc-label { font-size: 0.65rem; color: var(--text-dim); margin-bottom: 0.15rem; }
+.rpc-box .rpc-name { font-weight: 700; font-size: 0.85rem; }
+.rpc-arrow { padding: 0 0.5rem; color: var(--text-muted); font-size: 0.9rem; display: flex; flex-direction: column; align-items: center; gap: 0.1rem; }
+.rpc-arrow .al { font-size: 0.55rem; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.stat { padding: 1.25rem; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); text-align: center; }
+.stat .stat-num { font-size: 2rem; font-weight: 800; }
+.stat .stat-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 0.3rem; }
+
+@media (max-width: 768px) {
+  h1 { font-size: 1.8rem; }
+  .rpc-flow { flex-direction: column; }
+  .rpc-arrow { transform: rotate(90deg); padding: 0.5rem 0; }
+  nav { gap: 1rem; flex-wrap: wrap; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="logo">codemode</span>
+  <a href="#problem">Problem</a>
+  <a href="#solution">Solution</a>
+  <a href="#how">How It Works</a>
+  <a href="#sandbox">Sandbox</a>
+  <a href="#backends">Backends</a>
+  <a href="#rpc">RPC</a>
+  <a href="#demo">Demo</a>
+</nav>
+
+<!-- ==================== HERO ==================== -->
+<section>
+<div class="container">
+  <h1>Code Execution with MCP</h1>
+  <p class="subtitle">Instead of giving an AI agent 30+ tools, give it one: <strong>write and run code</strong>. The code calls the tools inside a secure sandbox.</p>
+
+  <div class="stat-grid">
+    <div class="stat">
+      <div class="stat-num" style="color:var(--accent)">1</div>
+      <div class="stat-label">tool exposed to agent</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num" style="color:var(--accent-5)">30+</div>
+      <div class="stat-label">tools available inside</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num" style="color:var(--accent-4)">39%</div>
+      <div class="stat-label">cheaper per session</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num" style="color:var(--accent-3)">0</div>
+      <div class="stat-label">network access in sandbox</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ==================== PROBLEM ==================== -->
+<section id="problem">
+<div class="container">
+  <h2>The Problem</h2>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#9888;</div>
+        <div class="card-title">Tool schemas bloat the context</div>
+      </div>
+      <div class="card-body">Every MCP tool carries a full JSON Schema definition. With 30+ tools from Calendar, GitHub, and Search servers, that's <strong>~15,000 tokens</strong> of schemas injected into every single turn. Those tokens are billed every time.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#9888;</div>
+        <div class="card-title">Results accumulate in context</div>
+      </div>
+      <div class="card-body">Each tool call adds its result to the conversation. A 7-step task means 7 results growing the context quadratically. By tool call #7, the LLM is re-processing all previous results.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#9888;</div>
+        <div class="card-title">No parallel execution</div>
+      </div>
+      <div class="card-body">Traditional tool calling is sequential &mdash; one call per turn. Independent operations (search + calendar check) can't run simultaneously. Each round-trip adds latency.</div>
+    </div>
+  </div>
+
+  <div class="highlight-box purple" style="margin-top:1.5rem">
+    <h4 style="color:var(--accent-2);margin-bottom:0.3rem">Measured impact</h4>
+    <p style="font-size:0.85rem;color:var(--text-dim)">Same task, same LLM (Claude Opus), same MCP servers. Direct tool calling: <strong>$6.95</strong> (41K first-turn context, 15K tokens of schemas). With codemode: <strong>$4.22</strong> (26K first-turn context, 221 tokens of schemas). 39% cost reduction.</p>
+  </div>
+</div>
+</section>
+
+<!-- ==================== SOLUTION ==================== -->
+<section id="solution">
+<div class="container">
+  <h2>The Solution</h2>
+  <p class="subtitle">An MCP server that wraps all your tools behind a single <code>run_python</code> tool. The agent writes Python code, and the code runs inside an isolated container with access to all tools via RPC.</p>
+
+  <div class="card-grid" style="grid-template-columns:1fr 80px 1fr 80px 1fr">
+    <div class="card" style="border-color:rgba(78,168,255,0.3)">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(78,168,255,0.15);color:var(--accent-5)">&#129302;</div>
+        <div class="card-title">Agent LLM</div>
+      </div>
+      <div class="card-body">Sees 1 tool: <code>run_python</code>. Writes Python code with <code>await tools['name'](...)</code>. Any LLM, any MCP client.</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.5rem">&rarr;</div>
+    <div class="card" style="border-color:rgba(0,212,170,0.3)">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(0,212,170,0.15);color:var(--accent)">&#9881;</div>
+        <div class="card-title">Codemode Server</div>
+      </div>
+      <div class="card-body">MCP server over stdio. Connects to all your MCP servers on startup. Routes tool calls from sandbox to real servers.</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.5rem">&rarr;</div>
+    <div class="card" style="border-color:rgba(255,107,107,0.3)">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#128230;</div>
+        <div class="card-title">Podman Sandbox</div>
+      </div>
+      <div class="card-body">Rootless container. No network, read-only filesystem, all capabilities dropped. Code executes here. Tool calls go through RPC.</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2.5rem">Key capabilities</h3>
+  <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(0,212,170,0.15);color:var(--accent)">&#128279;</div>
+        <div class="card-title">Persistent state</div>
+      </div>
+      <div class="card-body">Variables survive between calls. Fetch data in call 1, analyze it in call 2 without re-querying.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(124,92,252,0.15);color:var(--accent-2)">&#9889;</div>
+        <div class="card-title">Top-level await</div>
+      </div>
+      <div class="card-body">No <code>async def main()</code> wrapper needed. Just write <code>await tools['name'](...)</code> directly. Less boilerplate, fewer tokens.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,217,61,0.15);color:var(--accent-4)">&#128270;</div>
+        <div class="card-title">Runtime discovery</div>
+      </div>
+      <div class="card-body"><code>_discover()</code>, <code>_schema('name')</code>, <code>_search('query')</code> &mdash; explore available tools from inside the sandbox without leaving the code block.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(78,168,255,0.15);color:var(--accent-5)">&#127981;</div>
+        <div class="card-title">Server-scoped proxies</div>
+      </div>
+      <div class="card-body"><code>mcp_calendar.list_events()</code> groups tools by server. Cleaner than flat <code>tools['name']</code> for multi-server setups.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#128274;</div>
+        <div class="card-title">Full isolation</div>
+      </div>
+      <div class="card-body"><code>--network none</code>, <code>--read-only</code>, <code>--cap-drop ALL</code>, unprivileged user. Credentials never enter the sandbox.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(0,212,170,0.15);color:var(--accent)">&#128640;</div>
+        <div class="card-title">On-demand loading</div>
+      </div>
+      <div class="card-body"><code>servers=["Calendar"]</code> parameter loads new MCP servers into a running container without restart.</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ==================== HOW IT WORKS ==================== -->
+<section id="how">
+<div class="container">
+  <h2>How It Works</h2>
+
+  <div class="flow">
+
+    <div class="flow-step s1">
+      <div class="marker"><div class="num">1</div><div class="line"></div></div>
+      <div class="content">
+        <div class="title">MCP client starts the server</div>
+        <div class="desc">Any MCP-compatible client (Claude Code, Cursor, custom agents) reads <code>.mcp.json</code> and spawns <code>server.py</code> as a child process. Communication is stdio JSON-RPC.</div>
+      </div>
+    </div>
+
+    <div class="flow-step s2">
+      <div class="marker"><div class="num">2</div><div class="line"></div></div>
+      <div class="content">
+        <div class="title">Server discovers and connects to MCP servers</div>
+        <div class="desc">Reads <code>*.json</code> config files from a configurable directory. Connects to each server (SSE or stdio), performs JSON-RPC handshake, and loads all available tools. Each tool becomes an async callable with its schema attached.</div>
+        <div class="card-grid" style="grid-template-columns:repeat(4,1fr);margin-top:0.75rem">
+          <div class="card" style="padding:0.75rem;text-align:center">
+            <div style="font-size:1.2rem;margin-bottom:0.25rem">&#128197;</div>
+            <div style="font-weight:600;font-size:0.75rem">Calendar</div>
+            <div style="color:var(--text-dim);font-size:0.6rem">SSE :3001</div>
+          </div>
+          <div class="card" style="padding:0.75rem;text-align:center">
+            <div style="font-size:1.2rem;margin-bottom:0.25rem">&#128025;</div>
+            <div style="font-weight:600;font-size:0.75rem">GitHub</div>
+            <div style="color:var(--text-dim);font-size:0.6rem">SSE :3003</div>
+          </div>
+          <div class="card" style="padding:0.75rem;text-align:center">
+            <div style="font-size:1.2rem;margin-bottom:0.25rem">&#128269;</div>
+            <div style="font-weight:600;font-size:0.75rem">Search</div>
+            <div style="color:var(--text-dim);font-size:0.6rem">SSE :3002</div>
+          </div>
+          <div class="card" style="padding:0.75rem;text-align:center">
+            <div style="font-size:1.2rem;margin-bottom:0.25rem">&#9878;</div>
+            <div style="font-weight:600;font-size:0.75rem">Converter</div>
+            <div style="color:var(--text-dim);font-size:0.6rem">stdio</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-step s3">
+      <div class="marker"><div class="num">3</div><div class="line"></div></div>
+      <div class="content">
+        <div class="title">Exposes a single tool: run_python</div>
+        <div class="desc">All 30+ tool names from connected servers are embedded in the tool description. The agent LLM sees one tool with ~221 tokens of schema instead of 30+ tools with ~15,000 tokens.</div>
+      </div>
+    </div>
+
+    <div class="flow-step s4">
+      <div class="marker"><div class="num">4</div><div class="line"></div></div>
+      <div class="content">
+        <div class="title">Agent writes Python, sandbox executes it</div>
+        <div class="desc">On first call, a Podman container starts with a baked entrypoint containing the RPC infrastructure, tool proxies, discovery helpers, and a persistent namespace. Code is sent via stdin, compiled with top-level await support, and evaluated.</div>
+        <pre class="code-block" style="margin-top:0.5rem"><span class="cmt"># Agent writes this &mdash; top-level await, no wrapper</span>
+cals = <span class="kw">await</span> tools[<span class="str">'list-calendars'</span>]()
+events = <span class="kw">await</span> tools[<span class="str">'list-events'</span>](calendarId=<span class="str">'primary'</span>)
+repos = <span class="kw">await</span> tools[<span class="str">'search_repositories'</span>](query=<span class="str">'my-project'</span>)
+<span class="fn">print</span>(json.dumps({<span class="str">"events"</span>: events, <span class="str">"repos"</span>: repos}, indent=<span class="num">2</span>))</pre>
+      </div>
+    </div>
+
+    <div class="flow-step s5">
+      <div class="marker"><div class="num">5</div><div class="line"></div></div>
+      <div class="content">
+        <div class="title">Tool calls cross the boundary via RPC</div>
+        <div class="desc">When code calls <code>tools['create-event'](...)</code>, it triggers a JSON-RPC request from the container to the host process. The host routes it through the ToolProxy to the real MCP server, unwraps the response, and sends it back.</div>
+      </div>
+    </div>
+
+    <div class="flow-step s6">
+      <div class="marker"><div class="num">6</div><div class="line"></div></div>
+      <div class="content">
+        <div class="title">Result returned, state persists</div>
+        <div class="desc">All <code>print()</code> output is captured and returned to the agent as the tool result. Variables stay alive in the persistent namespace for the next call.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</section>
+
+<!-- ==================== SANDBOX ==================== -->
+<section id="sandbox">
+<div class="container">
+  <h2>Sandbox Architecture</h2>
+  <p class="subtitle">What's baked into the container and how isolation works</p>
+
+  <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(0,212,170,0.15);color:var(--accent)">&#9881;</div>
+        <div class="card-title">StreamProxy</div>
+      </div>
+      <div class="card-body">Replaces <code>sys.stdout/stderr</code>. Every <code>print()</code> becomes a JSON message sent to the host for capture.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(124,92,252,0.15);color:var(--accent-2)">&#128279;</div>
+        <div class="card-title">RPC Infrastructure</div>
+      </div>
+      <div class="card-body">Future-based request/response over stdin/stdout. Each tool call gets a unique ID, 30s timeout prevents deadlocks.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(78,168,255,0.15);color:var(--accent-5)">&#128218;</div>
+        <div class="card-title">_ToolsDict</div>
+      </div>
+      <div class="card-body">Dict with <code>__missing__</code> auto-proxy. Known tools pre-loaded; on-demand tools get RPC proxies automatically on first access.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,217,61,0.15);color:var(--accent-4)">&#128270;</div>
+        <div class="card-title">Baked Metadata</div>
+      </div>
+      <div class="card-body">Full tool schemas baked as JSON into the entrypoint. <code>_discover()</code> and <code>_schema()</code> read locally &mdash; zero RPC for known tools.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#127981;</div>
+        <div class="card-title">Server Proxies</div>
+      </div>
+      <div class="card-body"><code>mcp_calendar.list_events()</code> &mdash; <code>_MCPProxy</code> groups tools by server via <code>__getattr__</code> routing.</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(0,212,170,0.15);color:var(--accent)">&#128202;</div>
+        <div class="card-title">Persistent Namespace</div>
+      </div>
+      <div class="card-body">A dict with tools, safe modules (json, datetime, re, math, asyncio), discovery helpers, and all user variables from previous calls.</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2rem">Container security</h3>
+  <pre class="code-block">podman run
+  <span class="var">--network none</span>                      <span class="cmt">no network access</span>
+  <span class="var">--read-only</span>                         <span class="cmt">immutable filesystem</span>
+  <span class="var">--cap-drop ALL</span>                      <span class="cmt">all Linux capabilities dropped</span>
+  <span class="var">--security-opt no-new-privileges</span>    <span class="cmt">no privilege escalation</span>
+  <span class="var">--user 65534:65534</span>                  <span class="cmt">unprivileged user (nobody)</span>
+  <span class="var">--memory 512m</span>                       <span class="cmt">memory limit</span>
+  <span class="var">--pids-limit 128</span>                    <span class="cmt">process limit</span>
+  <span class="var">--tmpfs /tmp:rw,noexec,size=64m</span>     <span class="cmt">writable temp space</span>
+  python:3.14-slim python3 -u /ipc/entrypoint.py</pre>
+</div>
+</section>
+
+<!-- ==================== BACKENDS ==================== -->
+<section id="backends">
+<div class="container">
+  <h2>Two Execution Backends</h2>
+  <p class="subtitle">Choose between persistent containers or ephemeral WASM isolation. Switch via <code>CODEMODE_BACKEND</code> env var.</p>
+
+  <div class="card-grid">
+    <div class="card" style="border-color:rgba(255,107,107,0.3)">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#128230;</div>
+        <div class="card-title">Podman Backend</div>
+      </div>
+      <div class="card-body" style="margin-bottom:0.75rem">Rootless container that stays alive between calls. Variables persist in a shared namespace across the entire session.</div>
+      <div style="font-size:0.78rem;line-height:2.2">
+        <div><span class="tag tag-red">State</span> Persistent &mdash; variables survive between calls</div>
+        <div><span class="tag tag-red">Await</span> Top-level await &mdash; no wrapper function needed</div>
+        <div><span class="tag tag-red">Boot</span> ~2s first call, instant after</div>
+        <div><span class="tag tag-red">Isolation</span> Kernel-level &mdash; <code>--network none --cap-drop ALL</code></div>
+        <div><span class="tag tag-red">Discovery</span> Baked JSON metadata &mdash; zero-RPC for known tools</div>
+        <div><span class="tag tag-red">Proxies</span> <code>mcp_calendar.list_events()</code> server-scoped access</div>
+      </div>
+
+      <pre class="code-block" style="margin-top:0.75rem;font-size:0.65rem"><span class="cmt"># Protocol: JSON-framed stdin/stdout</span>
+
+Host   &rarr; {"type":"execute","code":"..."}
+Container &rarr; compile(code, PyCF_ALLOW_TOP_LEVEL_AWAIT)
+          &rarr; eval(compiled, persistent_namespace)
+          &rarr; tools['name']() &rarr; rpc_request &rarr; Host
+Host   &rarr; ToolProxy.call() &rarr; MCP server
+Host   &rarr; rpc_response back to container
+Container &rarr; {"type":"execution_done"}</pre>
+    </div>
+
+    <div class="card" style="border-color:rgba(255,217,61,0.3)">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,217,61,0.15);color:var(--accent-4)">&#9889;</div>
+        <div class="card-title">Pyodide WASM Backend</div>
+      </div>
+      <div class="card-body" style="margin-bottom:0.75rem">Python running inside WebAssembly via Node.js. Fresh process per call &mdash; true memory isolation with zero state leakage.</div>
+      <div style="font-size:0.78rem;line-height:2.2">
+        <div><span class="tag tag-yellow">State</span> Ephemeral &mdash; clean slate every call</div>
+        <div><span class="tag tag-yellow">Await</span> Requires <code>async def main()</code> wrapper</div>
+        <div><span class="tag tag-yellow">Boot</span> ~0.7s every call (WASM load)</div>
+        <div><span class="tag tag-yellow">Isolation</span> V8 WASM memory boundary</div>
+        <div><span class="tag tag-yellow">Discovery</span> Via <code>tools</code> dict (RPC only)</div>
+        <div><span class="tag tag-yellow">Proxies</span> No server-scoped proxies</div>
+      </div>
+
+      <pre class="code-block" style="margin-top:0.75rem;font-size:0.65rem"><span class="cmt"># Protocol: newline-delimited JSON</span>
+
+Host    &rarr; spawn node pyodide_runner.js
+Runner  &rarr; {"type":"ready"}
+Host    &rarr; {"type":"execute","code":"...","tools":[...]}
+Runner  &rarr; {"type":"tool_call","id":1,"name":"...","args":{}}
+Host    &rarr; ToolProxy.call() &rarr; MCP server
+Host    &rarr; {"type":"tool_result","id":1,"result":{...}}
+Runner  &rarr; {"type":"result","success":true,"output":"..."}
+<span class="cmt"># Process exits. Nothing persists.</span></pre>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2rem">Comparison</h3>
+  <div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:0.5rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border)">
+        <th style="text-align:left;padding:0.5rem;color:var(--text-dim)"></th>
+        <th style="text-align:left;padding:0.5rem;color:var(--accent-3)">Podman</th>
+        <th style="text-align:left;padding:0.5rem;color:var(--accent-4)">Pyodide WASM</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.5rem;color:var(--text-dim)">Isolation</td>
+        <td style="padding:0.5rem">Rootless container (kernel-level)</td>
+        <td style="padding:0.5rem">WASM memory boundary (V8)</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.5rem;color:var(--text-dim)">Persistent state</td>
+        <td style="padding:0.5rem" style="color:var(--accent)">Yes &mdash; variables survive</td>
+        <td style="padding:0.5rem">No &mdash; fresh every call</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.5rem;color:var(--text-dim)">Top-level await</td>
+        <td style="padding:0.5rem">Yes</td>
+        <td style="padding:0.5rem">No &mdash; needs <code>async def main()</code></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.5rem;color:var(--text-dim)">Boot time</td>
+        <td style="padding:0.5rem">~2s first, instant after</td>
+        <td style="padding:0.5rem">~0.7s every call</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.5rem;color:var(--text-dim)">Network</td>
+        <td style="padding:0.5rem"><code>--network none</code></td>
+        <td style="padding:0.5rem">WASM has no network APIs</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.5rem;color:var(--text-dim)">Server proxies</td>
+        <td style="padding:0.5rem">Yes &mdash; <code>mcp_calendar.*()</code></td>
+        <td style="padding:0.5rem">No</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:0.5rem;color:var(--text-dim)">Requires</td>
+        <td style="padding:0.5rem">Podman or Docker</td>
+        <td style="padding:0.5rem">Node.js + npm pyodide</td>
+      </tr>
+      <tr>
+        <td style="padding:0.5rem;color:var(--text-dim)">Best for</td>
+        <td style="padding:0.5rem">Interactive, multi-step, exploratory</td>
+        <td style="padding:0.5rem">One-shot tasks, maximum isolation</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+</section>
+
+<!-- ==================== RPC ==================== -->
+<section id="rpc">
+<div class="container">
+  <h2>RPC Protocol</h2>
+  <p class="subtitle">How tool calls cross the container boundary</p>
+
+  <div class="rpc-flow">
+    <div class="rpc-box" style="background:rgba(255,107,107,0.1);border-color:rgba(255,107,107,0.3)">
+      <div class="rpc-label">Podman Container</div>
+      <div class="rpc-name" style="color:var(--accent-3)">tools['create-event']()</div>
+    </div>
+    <div class="rpc-arrow">
+      <div class="al">rpc_request</div>&rarr;<div class="al">stdin JSON</div>
+    </div>
+    <div class="rpc-box" style="background:rgba(0,212,170,0.1);border-color:rgba(0,212,170,0.3)">
+      <div class="rpc-label">Host Process</div>
+      <div class="rpc-name" style="color:var(--accent)">ToolProxy</div>
+    </div>
+    <div class="rpc-arrow">
+      <div class="al">JSON-RPC</div>&rarr;<div class="al">SSE / stdio</div>
+    </div>
+    <div class="rpc-box" style="background:rgba(78,168,255,0.1);border-color:rgba(78,168,255,0.3)">
+      <div class="rpc-label">MCP Server</div>
+      <div class="rpc-name" style="color:var(--accent-5)">Calendar / GitHub / ...</div>
+    </div>
+  </div>
+
+  <div class="card-grid" style="margin-top:1.5rem">
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="tag tag-green">call_tool</span> Execute a tool</div></div>
+      <pre class="code-block" style="font-size:0.65rem;margin:0"><span class="cmt">// Container &rarr; Host</span>
+{"type":"rpc_request","id":1,"payload":{
+  "type":"call_tool",
+  "tool":"create-event",
+  "arguments":{"calendarId":"primary","summary":"GTC"}
+}}
+
+<span class="cmt">// Host &rarr; Container</span>
+{"type":"rpc_response","id":1,"payload":{
+  "success":true,
+  "result":{"id":"evt_abc","htmlLink":"..."}
+}}</pre>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title"><span class="tag tag-purple">discover</span> <span class="tag tag-blue">schema</span> <span class="tag tag-yellow">search</span> Discovery</div></div>
+      <pre class="code-block" style="font-size:0.65rem;margin:0"><span class="cmt">// List all available tools</span>
+{"type":"rpc_request","id":2,
+ "payload":{"type":"discover"}}
+
+<span class="cmt">// Get full schema for a specific tool</span>
+{"type":"rpc_request","id":3,
+ "payload":{"type":"schema","tool":"create-event"}}
+
+<span class="cmt">// Search tools by keyword</span>
+{"type":"rpc_request","id":4,
+ "payload":{"type":"search","query":"calendar"}}</pre>
+    </div>
+  </div>
+
+  <h3 style="margin-top:2rem">Response unwrapping</h3>
+  <p style="color:var(--text-dim);font-size:0.82rem;margin-bottom:0.75rem">ToolProxy automatically normalizes MCP responses so the sandbox code gets clean Python objects.</p>
+  <div style="font-size:0.8rem;line-height:2.2">
+    <div><span class="tag tag-green">1</span> Normalize calling conventions &mdash; dict arg, kwargs, positional args all accepted</div>
+    <div><span class="tag tag-blue">2</span> Strip <code>None</code> values &mdash; LLMs often pass optional params as <code>None</code></div>
+    <div><span class="tag tag-purple">3</span> Unwrap MCP content blocks &mdash; <code>[{type:"text", text:"{}"}]</code> &rarr; <code>{}</code></div>
+    <div><span class="tag tag-yellow">4</span> Parse JSON strings &mdash; <code>'{"id":"123"}'</code> &rarr; <code>{"id": "123"}</code></div>
+  </div>
+</div>
+</section>
+
+<!-- ==================== DEMO ==================== -->
+<section id="demo">
+<div class="container">
+  <h2>Example &mdash; Multi-Tool Task in One Code Block</h2>
+  <p class="subtitle">Task: Find AI conferences, check calendar for conflicts, schedule an event, create a GitHub repo</p>
+
+  <pre class="code-block" style="font-size:0.78rem;line-height:1.8"><span class="kw">import</span> json
+
+<span class="cmt"># Search for conferences and check calendar in parallel</span>
+<span class="kw">import</span> asyncio
+conferences, freebusy = <span class="kw">await</span> asyncio.gather(
+    tools[<span class="str">'google_search'</span>](q=<span class="str">'top AI conferences March 2026'</span>),
+    tools[<span class="str">'get-freebusy'</span>](
+        calendars=[{<span class="str">"id"</span>: <span class="str">"primary"</span>}],
+        timeMin=<span class="str">'2026-03-16T00:00:00'</span>,
+        timeMax=<span class="str">'2026-03-19T23:59:59'</span>
+    )
+)
+
+<span class="cmt"># Pick the top result and find a free slot</span>
+top = conferences[<span class="str">'organic'</span>][<span class="num">0</span>]
+<span class="fn">print</span>(<span class="str">f"Selected: {top['title']}"</span>)
+
+<span class="cmt"># Schedule the event</span>
+event = <span class="kw">await</span> tools[<span class="str">'create-event'</span>](
+    calendarId=<span class="str">'primary'</span>,
+    summary=top[<span class="str">'title'</span>],
+    start=<span class="str">'2026-03-17T10:00:00'</span>,
+    end=<span class="str">'2026-03-17T11:00:00'</span>
+)
+
+<span class="cmt"># Create a repo and add a README</span>
+repo = <span class="kw">await</span> tools[<span class="str">'create_repository'</span>](name=<span class="str">'conference-notes'</span>)
+<span class="kw">await</span> tools[<span class="str">'create_or_update_file'</span>](
+    owner=repo[<span class="str">'owner'</span>][<span class="str">'login'</span>], repo=<span class="str">'conference-notes'</span>,
+    path=<span class="str">'README.md'</span>, content=<span class="str">f'# {top["title"]}\nNotes from the conference'</span>,
+    message=<span class="str">'Initial commit'</span>
+)
+
+<span class="fn">print</span>(json.dumps({
+    <span class="str">"event"</span>: event[<span class="str">'summary'</span>],
+    <span class="str">"repo"</span>: repo[<span class="str">'html_url'</span>]
+}, indent=<span class="num">2</span>))</pre>
+
+  <div class="highlight-box green" style="margin-top:1.5rem">
+    <h4 style="color:var(--accent);margin-bottom:0.5rem">What just happened</h4>
+    <div style="font-size:0.85rem;color:var(--text-dim);line-height:1.8">
+      <div>&#8226; 6 tool calls across 3 MCP servers (Search, Calendar, GitHub) in <strong>one code block</strong></div>
+      <div>&#8226; <code>asyncio.gather()</code> ran search + calendar check <strong>in parallel</strong></div>
+      <div>&#8226; Results from one tool used as input to the next &mdash; <strong>no round-trips to the LLM</strong></div>
+      <div>&#8226; Agent context window: <strong>~221 tokens</strong> of tool schemas instead of ~15,000</div>
+      <div>&#8226; All data stayed inside the sandbox &mdash; only <code>print()</code> output returned to the agent</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ==================== COMPLETE FLOW ==================== -->
+<section>
+<div class="container">
+  <h2>End-to-End Data Flow</h2>
+
+  <h3>Podman Backend</h3>
+  <p style="color:var(--text-dim);font-size:0.82rem;margin-bottom:0.75rem">Persistent container &mdash; stays alive between calls, variables survive</p>
+  <pre class="code-block" style="font-size:0.7rem;line-height:2">
+<span class="cmt">MCP Client (Claude Code, Cursor, LangChain, any agent)</span>
+  <span class="op">|</span>
+  <span class="op">|</span> <span class="cmt">stdio JSON-RPC</span>
+  <span class="op">v</span>
+<span class="fn">Codemode MCP Server</span>
+  <span class="op">|</span>
+  <span class="op">|-- Discover MCP servers</span>              <span class="str">$CODEMODE_MCPS_DIR/*.json</span>
+  <span class="op">|     calendar.json, github.json, serper.json ...</span>
+  <span class="op">|</span>
+  <span class="op">|-- Connect to each server</span>             <span class="cmt">SSE handshake / stdio subprocess</span>
+  <span class="op">|     JSON-RPC: initialize + tools/list</span>
+  <span class="op">|     Each tool &rarr; async callable with schema</span>
+  <span class="op">|</span>
+  <span class="op">|-- Expose run_python to agent</span>          <span class="cmt">1 tool, ~221 tokens</span>
+  <span class="op">|</span>
+  <span class="op">|== Agent calls run_python(code=...) ===========================|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Build sandbox globals</span>                                       <span class="op">|</span>
+  <span class="op">|     ToolProxy wraps each tool</span>                                 <span class="op">|</span>
+  <span class="op">|     Discovery helpers injected</span>                                <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- First call? Start Podman container</span>                          <span class="op">|</span>
+  <span class="op">|     Bake entrypoint.py with tool names + server metadata</span>      <span class="op">|</span>
+  <span class="op">|     podman run --network none --read-only --cap-drop ALL</span>      <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Send code to container</span>                                      <span class="op">|</span>
+  <span class="op">|     {"type":"execute","code":"..."}</span>                            <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|   [PODMAN CONTAINER &mdash; persistent]</span>                             <span class="op">|</span>
+  <span class="op">|     compile(code, PyCF_ALLOW_TOP_LEVEL_AWAIT)</span>                 <span class="op">|</span>
+  <span class="op">|     eval(compiled, persistent_namespace)</span>                      <span class="op">|</span>
+  <span class="op">|       tools['create-event'](...)</span>                              <span class="op">|</span>
+  <span class="op">|         RPC request &rarr; host</span>                                   <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Host receives RPC request</span>                                   <span class="op">|</span>
+  <span class="op">|     ToolProxy.call() &rarr; MCPConnection.call_tool()</span>              <span class="op">|</span>
+  <span class="op">|       POST to Calendar SSE :3001</span>                              <span class="op">|</span>
+  <span class="op">|     Unwrap response &rarr; send back to container</span>                 <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Container finishes execution</span>                                <span class="op">|</span>
+  <span class="op">|     Captured print() output &rarr; returned to agent</span>              <span class="op">|</span>
+  <span class="op">|     Variables persist for next call</span>                            <span class="op">|</span>
+  <span class="op">|     Container stays alive &mdash; ready for next run_python</span>        <span class="op">|</span>
+  <span class="op">|====================================================================|</span>
+</pre>
+
+  <h3 style="margin-top:2.5rem">Pyodide WASM Backend</h3>
+  <p style="color:var(--text-dim);font-size:0.82rem;margin-bottom:0.75rem">Fresh Node.js process per call &mdash; nothing persists, full memory isolation</p>
+  <pre class="code-block" style="font-size:0.7rem;line-height:2">
+<span class="cmt">MCP Client (Claude Code, Cursor, LangChain, any agent)</span>
+  <span class="op">|</span>
+  <span class="op">|</span> <span class="cmt">stdio JSON-RPC</span>
+  <span class="op">v</span>
+<span class="fn">Codemode MCP Server</span>                  <span class="cmt">(same startup as Podman &mdash; discovers + connects to MCP servers)</span>
+  <span class="op">|</span>
+  <span class="op">|== Agent calls run_python(code=...) ===========================|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Build sandbox globals</span>                                       <span class="op">|</span>
+  <span class="op">|     ToolProxy wraps each tool</span>                                 <span class="op">|</span>
+  <span class="op">|     Discovery helpers injected</span>                                <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Spawn fresh Node.js process</span>                                 <span class="op">|</span>
+  <span class="op">|     node pyodide_runner.js</span>                                    <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|   [NODE.JS + PYODIDE WASM]</span>                                    <span class="op">|</span>
+  <span class="op">|     Load Pyodide WebAssembly runtime (~0.7s)</span>                  <span class="op">|</span>
+  <span class="op">|     &rarr; {"type":"ready"}</span>                                       <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Send execute command</span>                                        <span class="op">|</span>
+  <span class="op">|     {"type":"execute","code":"...","tools":["list-events"...]}</span> <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|   [WASM SANDBOX &mdash; ephemeral]</span>                                  <span class="op">|</span>
+  <span class="op">|     Run code inside async def main()</span>                          <span class="op">|</span>
+  <span class="op">|       tools['create-event'](...)</span>                              <span class="op">|</span>
+  <span class="op">|         &rarr; {"type":"tool_call","id":1,"name":"...","args":{}}</span> <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Host receives tool_call</span>                                     <span class="op">|</span>
+  <span class="op">|     ToolProxy.call() &rarr; MCPConnection.call_tool()</span>              <span class="op">|</span>
+  <span class="op">|       POST to Calendar SSE :3001</span>                              <span class="op">|</span>
+  <span class="op">|     &rarr; {"type":"tool_result","id":1,"result":{...}}</span>            <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|   [WASM SANDBOX]</span>                                               <span class="op">|</span>
+  <span class="op">|     Receives result, continues execution</span>                      <span class="op">|</span>
+  <span class="op">|     &rarr; {"type":"result","success":true,"output":"..."}</span>        <span class="op">|</span>
+  <span class="op">|</span>                                                                <span class="op">|</span>
+  <span class="op">|-- Node.js process exits</span>                                      <span class="op">|</span>
+  <span class="op">|     Output returned to agent</span>                                  <span class="op">|</span>
+  <span class="op">|     Nothing persists &mdash; next call spawns a new process</span>        <span class="op">|</span>
+  <span class="op">|====================================================================|</span>
+</pre>
+
+</div>
+</section>
+
+<section style="padding:3rem 0;border:none">
+<div class="container" style="text-align:center">
+  <p style="color:var(--text-muted);font-size:0.85rem">codemode &mdash; Code Execution with MCP</p>
+</div>
+</section>
+
+</body>
+</html>
