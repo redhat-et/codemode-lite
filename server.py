@@ -130,34 +130,65 @@ async def init():
 async def list_tools():
     tools_desc = ", ".join(_tool_names)
     servers_desc = ", ".join(_server_names) if _server_names else "none configured"
+    backend = _cm.backend_name if _cm else "podman"
+    is_podman = backend == "podman"
+
+    if is_podman:
+        tool_description = (
+            f"Execute Python code directly in a sandbox. "
+            f"Top-level await supported — no async def main() wrapper needed. "
+            f"Persistent sandbox — variables survive between calls. "
+            f"Call tools via `await tools['name'](param=value)`. "
+            f"Server proxies available: e.g. `await mcp_calendar.list_events(...)`. "
+            f"Currently loaded tools: {tools_desc}. "
+            f"Available servers: {servers_desc}. "
+            f"Available modules: json, datetime, re, math, collections, itertools, functools, asyncio."
+        )
+        code_description = (
+            "Python code to execute. Top-level await supported. "
+            "Persistent sandbox — variables survive between calls. "
+            "1. DISCOVER: await _discover() lists all tools, await _schema('name') returns input schema, await _search('query') searches tools. "
+            "2. CALL: await tools['tool_name'](param=value). "
+            "3. SERVER PROXIES: await mcp_calendar.list_events(...) groups tools by server."
+            "\n\nIMPORTANT: All functions are async — ALWAYS use await. "
+            "Minimize round trips: get ALL schemas required and call ALL tools to complete tasks in ONE code block. "
+            "ALWAYS print() results — output is only captured via print(). "
+            "Example: `r = await tools['create-event'](...); print(r)`"
+        )
+    else:
+        tool_description = (
+            f"Execute Python code directly in a WASM sandbox. "
+            f"Code MUST be wrapped in `async def main():` and return a dict. "
+            f"Each call runs in a fresh sandbox — no state persistence. "
+            f"Call tools via `await tools['name'](param=value)`. "
+            f"Currently loaded tools: {tools_desc}. "
+            f"Available servers: {servers_desc}. "
+            f"Available modules: json, datetime, re, math, collections, itertools, functools, asyncio."
+        )
+        code_description = (
+            "Python code to execute. MUST define `async def main():` that returns a dict. "
+            "Fresh sandbox per call — no state persistence between calls. "
+            "1. DISCOVER: await tools['_discover']() lists all tools, await tools['_schema']('name') returns input schema, await tools['_search']('query') searches tools. "
+            "2. CALL: await tools['tool_name'](param=value). "
+            "\n\nIMPORTANT: All functions are async — ALWAYS use await. "
+            "ALWAYS print() results — output is only captured via print(). "
+            "Example:\n"
+            "async def main():\n"
+            "    r = await tools['list-calendars']()\n"
+            "    print(r)\n"
+            "    return {'calendars': r}"
+        )
 
     return [
         Tool(
             name="run_python",
-            description=(
-                f"Execute Python code directly in a sandbox. "
-                f"Top-level await supported. "
-                f"Call tools via `await tools['name'](param=value)`. "
-                f"Currently loaded tools: {tools_desc}. "
-                f"Available servers: {servers_desc}. "
-                f"Available modules: json, datetime, re, math, collections, itertools, functools, asyncio."
-            ),
+            description=tool_description,
             inputSchema={
                 "type": "object",
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": (
-                            "Python code to execute. Top-level await supported. "
-                            "Persistent sandbox — variables survive between calls. "
-                            "1. DISCOVER: _discover() lists all tools, _schema('name') returns input schema, _search('query') searches tools. "
-                            "2. CALL: await tools['tool_name'](param=value). "
-                            "3. SERVER PROXIES: await mcp_calendar.list_events(...) groups tools by server."
-                            "\n\nIMPORTANT: All functions are async — ALWAYS use await. "
-                            "Minimize round trips: get ALL schemas required and call ALL tools to complete tasks ONE code block each. "
-                            "ALWAYS print() results — output is only captured via print(). "
-                            "Example: `r = await tools['create-event'](...); print(r)`"
-                        ),
+                        "description": code_description,
                     },
                     "servers": {
                         "type": "array",

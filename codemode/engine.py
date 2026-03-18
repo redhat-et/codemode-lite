@@ -1,4 +1,5 @@
 """CodeMode engine — run_code only, no LLM generation."""
+import ast
 import asyncio
 import importlib
 import logging
@@ -6,6 +7,12 @@ import time
 from typing import Callable
 
 from .proxy import ToolProxy
+
+FORBIDDEN_MODULES = frozenset({
+    "os", "subprocess", "sys", "shutil", "socket",
+    "signal", "ctypes", "importlib",
+    "js", "pyodide_js", "pyodide",
+})
 
 logger = logging.getLogger("codemode")
 
@@ -50,9 +57,51 @@ class CodeMode:
         logger.info("Using %s backend", instance.get_name())
         return instance
 
+    @staticmethod
+    def validate_code(code: str) -> tuple[bool, str]:
+        """Check code for syntax errors and forbidden imports."""
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as exc:
+            return False, f"Syntax error: {exc}"
+
+        has_async_main = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top = alias.name.split(".")[0]
+                    if top in FORBIDDEN_MODULES:
+                        return False, f"Forbidden import: {top}"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    top = node.module.split(".")[0]
+                    if top in FORBIDDEN_MODULES:
+                        return False, f"Forbidden import: {top}"
+            elif isinstance(node, ast.AsyncFunctionDef) and node.name == "main":
+                has_async_main = True
+
+        if not has_async_main:
+            return False, "Missing async def main() function"
+
+        return True, "OK"
+
     async def run_code(self, code: str) -> dict:
         """Execute pre-written code directly (no LLM generation)."""
         logger.info("RUN_CODE | code_length=%d", len(code))
+
+        # Validate code — check syntax and forbidden imports
+        supports_top_level_await = self.backend_name == "podman" and self.persistent
+        valid, msg = self.validate_code(code)
+        if not valid:
+            if "Missing async def main()" in msg and supports_top_level_await:
+                logger.info("RUN_CODE | skipping main() check (top-level await supported)")
+            else:
+                logger.warning("RUN_CODE VALIDATE | FAILED: %s", msg)
+                return {
+                    "success": False,
+                    "error": msg,
+                    "backend": self._backend.get_name(),
+                }
 
         sandbox_tools = self._proxy.as_sandbox_globals()
         sandbox_tools.update(self._build_discovery_helpers())

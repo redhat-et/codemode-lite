@@ -262,9 +262,8 @@ for _tn in _tool_bridge.names:
 # Block JS interop — prevents escaping WASM sandbox via Node.js APIs
 # (from js import require → require('fs'), require('child_process'), etc.)
 # ------------------------------------------------------------------
-import _sys as _block_sys
 for _blocked in ('js', 'pyodide_js', 'pyodide'):
-    _block_sys.modules[_blocked] = None
+    _sys.modules[_blocked] = None
 
 # ------------------------------------------------------------------
 # Make common stdlib modules available as globals
