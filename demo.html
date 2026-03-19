@@ -299,28 +299,28 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
     <div class="flow-step s2">
       <div class="marker"><div class="num">2</div><div class="line"></div></div>
       <div class="content">
-        <div class="title">Server discovers and connects to MCP servers</div>
-        <div class="desc">Reads <code>*.json</code> config files from a configurable directory. Connects to each server (SSE or stdio), performs JSON-RPC handshake, and loads all available tools. Each tool becomes an async callable with its schema attached.</div>
+        <div class="title">Registers MCP server configs (no connections yet)</div>
+        <div class="desc">Reads <code>*.json</code> config files from <code>$CODEMODE_MCPS_DIR</code>. Registers each server's connection details but does NOT connect. Startup is instant &mdash; zero network calls.</div>
         <div class="card-grid" style="grid-template-columns:repeat(4,1fr);margin-top:0.75rem">
           <div class="card" style="padding:0.75rem;text-align:center">
             <div style="font-size:1.2rem;margin-bottom:0.25rem">&#128197;</div>
             <div style="font-weight:600;font-size:0.75rem">Calendar</div>
-            <div style="color:var(--text-dim);font-size:0.6rem">SSE :3001</div>
+            <div style="color:var(--text-dim);font-size:0.6rem">registered, not connected</div>
           </div>
           <div class="card" style="padding:0.75rem;text-align:center">
             <div style="font-size:1.2rem;margin-bottom:0.25rem">&#128025;</div>
             <div style="font-weight:600;font-size:0.75rem">GitHub</div>
-            <div style="color:var(--text-dim);font-size:0.6rem">SSE :3003</div>
+            <div style="color:var(--text-dim);font-size:0.6rem">registered, not connected</div>
           </div>
           <div class="card" style="padding:0.75rem;text-align:center">
             <div style="font-size:1.2rem;margin-bottom:0.25rem">&#128269;</div>
             <div style="font-weight:600;font-size:0.75rem">Search</div>
-            <div style="color:var(--text-dim);font-size:0.6rem">SSE :3002</div>
+            <div style="color:var(--text-dim);font-size:0.6rem">registered, not connected</div>
           </div>
           <div class="card" style="padding:0.75rem;text-align:center">
             <div style="font-size:1.2rem;margin-bottom:0.25rem">&#9878;</div>
             <div style="font-weight:600;font-size:0.75rem">Converter</div>
-            <div style="color:var(--text-dim);font-size:0.6rem">stdio</div>
+            <div style="color:var(--text-dim);font-size:0.6rem">registered, not connected</div>
           </div>
         </div>
       </div>
@@ -330,20 +330,27 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
       <div class="marker"><div class="num">3</div><div class="line"></div></div>
       <div class="content">
         <div class="title">Exposes a single tool: run_python</div>
-        <div class="desc">All 30+ tool names from connected servers are embedded in the tool description. The agent LLM sees one tool with ~221 tokens of schema instead of 30+ tools with ~15,000 tokens.</div>
+        <div class="desc">Agent sees one tool with server names listed. No tool schemas, no tool names &mdash; the agent discovers tools at runtime using <code>_discover()</code> and <code>_schema()</code> inside the sandbox.</div>
       </div>
     </div>
 
     <div class="flow-step s4">
       <div class="marker"><div class="num">4</div><div class="line"></div></div>
       <div class="content">
-        <div class="title">Agent writes Python, sandbox executes it</div>
-        <div class="desc">On first call, a Podman container starts with a baked entrypoint containing the RPC infrastructure, tool proxies, discovery helpers, and a persistent namespace. Code is sent via stdin, compiled with top-level await support, and evaluated.</div>
-        <pre class="code-block" style="margin-top:0.5rem"><span class="cmt"># Agent writes this &mdash; top-level await, no wrapper</span>
+        <div class="title">Agent calls run_python with servers=[...]</div>
+        <div class="desc">The agent passes <code>servers=["Calendar", "GitHub"]</code> to load only the servers it needs. On first use, the server connects (SSE handshake or stdio subprocess), loads tools, and injects them into the sandbox. Subsequent calls with the same server are instant (cached).</div>
+        <pre class="code-block" style="margin-top:0.5rem"><span class="cmt"># Agent passes servers=["Calendar", "GitHub"]</span>
+<span class="cmt"># Calendar connects NOW, GitHub connects NOW</span>
+<span class="cmt"># Sandbox container also starts on first call</span>
+
+<span class="cmt"># Discover what's available</span>
+tools_list = <span class="kw">await</span> <span class="fn">_discover</span>()
+schema = <span class="kw">await</span> <span class="fn">_schema</span>(<span class="str">'list-events'</span>)
+
+<span class="cmt"># Call tools</span>
 cals = <span class="kw">await</span> tools[<span class="str">'list-calendars'</span>]()
-events = <span class="kw">await</span> tools[<span class="str">'list-events'</span>](calendarId=<span class="str">'primary'</span>)
-repos = <span class="kw">await</span> tools[<span class="str">'search_repositories'</span>](query=<span class="str">'my-project'</span>)
-<span class="fn">print</span>(json.dumps({<span class="str">"events"</span>: events, <span class="str">"repos"</span>: repos}, indent=<span class="num">2</span>))</pre>
+repos = <span class="kw">await</span> tools[<span class="str">'search_repositories'</span>](query=<span class="str">'test'</span>)
+<span class="fn">print</span>(json.dumps({<span class="str">"cals"</span>: len(cals), <span class="str">"repos"</span>: repos[<span class="str">'total_count'</span>]}))</pre>
       </div>
     </div>
 
@@ -351,7 +358,7 @@ repos = <span class="kw">await</span> tools[<span class="str">'search_repositori
       <div class="marker"><div class="num">5</div><div class="line"></div></div>
       <div class="content">
         <div class="title">Tool calls cross the boundary via RPC</div>
-        <div class="desc">When code calls <code>tools['create-event'](...)</code>, it triggers a JSON-RPC request from the container to the host process. The host routes it through the ToolProxy to the real MCP server, unwraps the response, and sends it back.</div>
+        <div class="desc">When code calls <code>tools['create-event'](...)</code>, it triggers a JSON-RPC request from the container to the host. The host routes through ToolProxy to the real MCP server, unwraps the response, and sends it back.</div>
       </div>
     </div>
 
@@ -359,7 +366,7 @@ repos = <span class="kw">await</span> tools[<span class="str">'search_repositori
       <div class="marker"><div class="num">6</div><div class="line"></div></div>
       <div class="content">
         <div class="title">Result returned, state persists</div>
-        <div class="desc">All <code>print()</code> output is captured and returned to the agent as the tool result. Variables stay alive in the persistent namespace for the next call.</div>
+        <div class="desc">Captured <code>print()</code> output returned to the agent. Variables persist for the next call. Servers stay connected &mdash; no reconnect overhead. Servers never used in this session are never connected.</div>
       </div>
     </div>
 
@@ -691,20 +698,18 @@ repo = <span class="kw">await</span> tools[<span class="str">'create_repository'
   <span class="op">v</span>
 <span class="fn">Codemode MCP Server</span>
   <span class="op">|</span>
-  <span class="op">|-- Discover MCP servers</span>              <span class="str">$CODEMODE_MCPS_DIR/*.json</span>
+  <span class="op">|-- Register MCP servers</span>              <span class="str">$CODEMODE_MCPS_DIR/*.json</span>
   <span class="op">|     calendar.json, github.json, serper.json ...</span>
+  <span class="op">|     (configs only &mdash; no connections yet)</span>
   <span class="op">|</span>
-  <span class="op">|-- Connect to each server</span>             <span class="cmt">SSE handshake / stdio subprocess</span>
-  <span class="op">|     JSON-RPC: initialize + tools/list</span>
-  <span class="op">|     Each tool &rarr; async callable with schema</span>
+  <span class="op">|-- Expose run_python to agent</span>          <span class="cmt">1 tool, server names only</span>
   <span class="op">|</span>
-  <span class="op">|-- Expose run_python to agent</span>          <span class="cmt">1 tool, ~221 tokens</span>
-  <span class="op">|</span>
-  <span class="op">|== Agent calls run_python(code=...) ===========================|</span>
+  <span class="op">|== Agent calls run_python(code=..., servers=["Calendar"]) =====|</span>
   <span class="op">|</span>                                                                <span class="op">|</span>
-  <span class="op">|-- Build sandbox globals</span>                                       <span class="op">|</span>
-  <span class="op">|     ToolProxy wraps each tool</span>                                 <span class="op">|</span>
-  <span class="op">|     Discovery helpers injected</span>                                <span class="op">|</span>
+  <span class="op">|-- Lazy load requested servers</span>                                 <span class="op">|</span>
+  <span class="op">|     Calendar: SSE handshake &rarr; initialize &rarr; tools/list</span>       <span class="op">|</span>
+  <span class="op">|     12 tools loaded, injected into sandbox</span>                    <span class="op">|</span>
+  <span class="op">|     (GitHub, Serper, Converter &mdash; NOT connected, not needed)</span>  <span class="op">|</span>
   <span class="op">|</span>                                                                <span class="op">|</span>
   <span class="op">|-- First call? Start Podman container</span>                          <span class="op">|</span>
   <span class="op">|     Bake entrypoint.py with tool names + server metadata</span>      <span class="op">|</span>
@@ -726,8 +731,7 @@ repo = <span class="kw">await</span> tools[<span class="str">'create_repository'
   <span class="op">|</span>                                                                <span class="op">|</span>
   <span class="op">|-- Container finishes execution</span>                                <span class="op">|</span>
   <span class="op">|     Captured print() output &rarr; returned to agent</span>              <span class="op">|</span>
-  <span class="op">|     Variables persist for next call</span>                            <span class="op">|</span>
-  <span class="op">|     Container stays alive &mdash; ready for next run_python</span>        <span class="op">|</span>
+  <span class="op">|     Variables persist, container stays alive, servers cached</span>   <span class="op">|</span>
   <span class="op">|====================================================================|</span>
 </pre>
 
@@ -738,13 +742,12 @@ repo = <span class="kw">await</span> tools[<span class="str">'create_repository'
   <span class="op">|</span>
   <span class="op">|</span> <span class="cmt">stdio JSON-RPC</span>
   <span class="op">v</span>
-<span class="fn">Codemode MCP Server</span>                  <span class="cmt">(same startup as Podman &mdash; discovers + connects to MCP servers)</span>
+<span class="fn">Codemode MCP Server</span>                  <span class="cmt">(same lazy startup &mdash; registers configs, no connections)</span>
   <span class="op">|</span>
-  <span class="op">|== Agent calls run_python(code=...) ===========================|</span>
+  <span class="op">|== Agent calls run_python(code=..., servers=["Calendar"]) =====|</span>
   <span class="op">|</span>                                                                <span class="op">|</span>
-  <span class="op">|-- Build sandbox globals</span>                                       <span class="op">|</span>
-  <span class="op">|     ToolProxy wraps each tool</span>                                 <span class="op">|</span>
-  <span class="op">|     Discovery helpers injected</span>                                <span class="op">|</span>
+  <span class="op">|-- Lazy load requested servers</span>                                 <span class="op">|</span>
+  <span class="op">|     Calendar: connect &rarr; load 12 tools</span>                        <span class="op">|</span>
   <span class="op">|</span>                                                                <span class="op">|</span>
   <span class="op">|-- Spawn fresh Node.js process</span>                                 <span class="op">|</span>
   <span class="op">|     node pyodide_runner.js</span>                                    <span class="op">|</span>

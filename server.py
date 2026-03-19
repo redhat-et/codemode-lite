@@ -50,7 +50,6 @@ from codemode.mcp_adapter import MCPToolLoader
 app = Server("codemode-mcp-server")
 
 _cm = None
-_tool_names = []
 _server_names = []
 _exit_stack = AsyncExitStack()
 _loader = None
@@ -89,8 +88,14 @@ def load_server_configs():
 
 
 async def init():
-    """Connect to all MCP servers and create CodeMode instance."""
-    global _cm, _tool_names, _server_names, _loader
+    """Register MCP server configs and create CodeMode instance.
+
+    Servers are NOT connected at startup — they load lazily when the
+    agent passes servers=["Calendar", "GitHub"] in a run_python call.
+    This keeps startup instant and avoids connecting to servers the
+    agent may never use.
+    """
+    global _cm, _server_names, _loader
 
     configs = load_server_configs()
     _loader = MCPToolLoader()
@@ -99,7 +104,7 @@ async def init():
         try:
             if cfg["type"] == "sse":
                 _loader.add_sse_server(cfg["name"], cfg["url"])
-                logger.info("Added SSE server: %s at %s", cfg["name"], cfg["url"])
+                logger.info("Registered SSE server: %s at %s", cfg["name"], cfg["url"])
             else:
                 env = cfg.get("env")
                 if env:
@@ -107,20 +112,17 @@ async def init():
                     merged.update(env)
                     env = merged
                 _loader.add_stdio_server(cfg["name"], cfg["command"], cfg.get("args", []), env=env)
-                logger.info("Added stdio server: %s", cfg["name"])
+                logger.info("Registered stdio server: %s", cfg["name"])
         except Exception as e:
-            logger.error("Failed to add %s: %s", cfg["name"], e)
+            logger.error("Failed to register %s: %s", cfg["name"], e)
 
     _server_names = [cfg.name for cfg in _loader._configs]
 
     await _exit_stack.enter_async_context(_loader)
-    tools = await _loader.load_tools()
-    _tool_names = sorted(tools.keys())
 
-    logger.info("Loaded %d tools: %s", len(tools), _tool_names)
-
+    # No tools loaded yet — they load on demand via servers= param
     _cm = CodeMode(
-        tools=tools,
+        tools={},
         backend=os.environ.get("CODEMODE_BACKEND", "podman"),
         timeout=int(os.environ.get("CODEMODE_TIMEOUT", "120")),
     )
@@ -128,76 +130,78 @@ async def init():
 
 @app.list_tools()
 async def list_tools():
-    tools_desc = ", ".join(_tool_names)
     servers_desc = ", ".join(_server_names) if _server_names else "none configured"
     backend = _cm.backend_name if _cm else "podman"
     is_podman = backend == "podman"
 
     if is_podman:
         tool_description = (
-            f"Execute Python code in an isolated Podman container with access to {len(_tool_names)} tools across {len(_server_names)} servers. "
+            f"Execute Python code in an isolated Podman container. "
             f"Top-level await, persistent state between calls. "
-            f"Maximize tool calls per run_python call — batch independent and dependent calls together to minimize round trips."
-            f"Use asyncio.gather() for independent calls. Chain dependent calls sequentially within the SAME code block. "
-            f"Discovery: _discover() lists all tools, _schema('name') shows required/optional params, _search('query') finds tools by keyword. "
-            f"Process data inside the sandbox and only print() a compact summary to keep context small. "
-            f"Tools: {tools_desc}. Servers: {servers_desc}."
+            f"Servers load on demand — pass servers=[...] to connect. Available: {servers_desc}. "
+            f"Maximize tool calls per run_python call — use asyncio.gather() for independent calls, chain dependent calls sequentially. "
+            f"ALWAYS discover tools first: _discover() lists all tools, _schema('name') shows required/optional params, _search('query') finds tools by keyword. "
+            f"Process data inside the sandbox and only print() a compact summary to keep context small."
         )
         code_description = (
             "Python code. Top-level await, no wrapper needed. Variables persist between calls.\n\n"
-            "Maximize tool calls per code block to minimize round trips."
-            "Batch all tool calls into a single code block — use asyncio.gather() for independent calls, sequential await for dependent ones.\n\n"
+            "Maximize tool calls per code block to minimize round trips. "
+            "Use asyncio.gather() for independent calls, sequential await for dependent ones.\n\n"
             "WORKFLOW:\n"
-            "1. Discover: schema = await _schema('tool-name') — check required/optional params\n"
-            "2. Call: result = await tools['tool-name'](param=value)\n"
-            "3. Parallel: a, b = await asyncio.gather(tools['x'](...), tools['y'](...))\n"
-            "4. Server proxies: await mcp_calendar.list_events(...)\n"
-            "5. Output: print() only a summary — raw data stays in sandbox\n\n"
+            "1. Discover: tools_list = await _discover() — find available tools\n"
+            "2. Schema: schema = await _schema('tool-name') — check required/optional params\n"
+            "3. Call: result = await tools['tool-name'](param=value)\n"
+            "4. Parallel: a, b = await asyncio.gather(tools['x'](...), tools['y'](...))\n"
+            "5. Server proxies: await mcp_calendar.list_events(...)\n"
+            "6. Output: print() only a summary — raw data stays in sandbox\n\n"
             "All functions are async — ALWAYS use await. Output is ONLY captured via print().\n"
             "Available: json, datetime, re, math, collections, itertools, functools, asyncio.\n\n"
-            "Example — ONE code block, multiple tools, parallel + sequential:\n"
-            "# parallel: independent calls\n"
-            "cals, repos, search = await asyncio.gather(\n"
+            "Example:\n"
+            "# step 1: discover tools and get schemas\n"
+            "tools_list = await _discover()\n"
+            "cal_schema = await _schema('list-events')\n"
+            "# step 2: parallel independent calls\n"
+            "cals, repos = await asyncio.gather(\n"
             "    tools['list-calendars'](),\n"
-            "    tools['search_repositories'](query='test'),\n"
-            "    tools['google_search'](q='AI conferences 2026')\n"
+            "    tools['search_repositories'](query='test')\n"
             ")\n"
-            "# sequential: depends on results above\n"
-            "event = await tools['create-event'](calendarId=cals[0]['id'], summary=search['organic'][0]['title'])\n"
-            "issue = await tools['create_issue'](owner=repos['items'][0]['owner']['login'], repo='test', title='done')\n"
-            "print(json.dumps({'event': event['summary'], 'issue': issue['number']}))"
+            "# step 3: sequential dependent call\n"
+            "event = await tools['create-event'](calendarId=cals[0]['id'], summary='test')\n"
+            "print(json.dumps({'event': event['summary'], 'repos': repos.get('total_count', 0)}))"
         )
     else:
         tool_description = (
-            f"Execute Python code in an isolated WASM sandbox with access to {len(_tool_names)} tools across {len(_server_names)} servers. "
+            f"Execute Python code in an isolated WASM sandbox. "
             f"Code MUST define async def main() returning a dict. Fresh sandbox per call, no persistence. "
-            f"Maximize tool calls per run_python call — batch independent and dependent calls together in one main() to minimize round trips."
-            f"Use asyncio.gather() for independent calls. Chain dependent calls sequentially within the SAME main(). "
-            f"Discovery: tools['_discover']() lists all tools, tools['_schema']('name') shows required/optional params, tools['_search']('query') finds tools by keyword. "
-            f"Process data inside main() and return only a compact summary dict to keep context small. "
-            f"Tools: {tools_desc}. Servers: {servers_desc}."
+            f"Servers load on demand — pass servers=[...] to connect. Available: {servers_desc}. "
+            f"Maximize tool calls per run_python call — use asyncio.gather() for independent calls, chain dependent calls sequentially. "
+            f"ALWAYS discover tools first: tools['_discover']() lists all tools, tools['_schema']('name') shows required/optional params, tools['_search']('query') finds tools by keyword. "
+            f"Process data inside main() and return only a compact summary dict to keep context small."
         )
         code_description = (
             "Python code. MUST define async def main() that returns a dict.\n\n"
-            "Maximize tool calls per main() to minimize round trips."
-            "Batch all tool calls into a single main() — use asyncio.gather() for independent calls, sequential await for dependent ones.\n\n"
+            "Maximize tool calls per main() to minimize round trips. "
+            "Use asyncio.gather() for independent calls, sequential await for dependent ones.\n\n"
             "WORKFLOW:\n"
-            "1. Discover: schema = await tools['_schema']('tool-name') — check required/optional params\n"
-            "2. Call: result = await tools['tool-name'](param=value)\n"
-            "3. Parallel: a, b = await asyncio.gather(tools['x'](...), tools['y'](...))\n"
-            "4. Return: return {'key': processed_data} — only the returned dict is captured\n\n"
+            "1. Discover: tools_list = await tools['_discover']() — find available tools\n"
+            "2. Schema: schema = await tools['_schema']('tool-name') — check required/optional params\n"
+            "3. Call: result = await tools['tool-name'](param=value)\n"
+            "4. Parallel: a, b = await asyncio.gather(tools['x'](...), tools['y'](...))\n"
+            "5. Return: return {'key': processed_data} — only the returned dict is captured\n\n"
             "All functions are async — ALWAYS use await. Output is ONLY the returned dict from main().\n"
             "Available: json, datetime, re, math, collections, itertools, functools, asyncio.\n\n"
-            "Example — ONE main(), multiple tools, parallel + sequential:\n"
+            "Example:\n"
             "async def main():\n"
-            "    # parallel: independent calls\n"
-            "    cals, repos, search = await asyncio.gather(\n"
+            "    # step 1: discover tools and get schemas\n"
+            "    tools_list = await tools['_discover']()\n"
+            "    cal_schema = await tools['_schema']('list-events')\n"
+            "    # step 2: parallel independent calls\n"
+            "    cals, repos = await asyncio.gather(\n"
             "        tools['list-calendars'](),\n"
-            "        tools['search_repositories'](query='test'),\n"
-            "        tools['google_search'](q='AI conferences 2026')\n"
+            "        tools['search_repositories'](query='test')\n"
             "    )\n"
-            "    # sequential: depends on results above\n"
-            "    event = await tools['create-event'](calendarId=cals[0]['id'], summary=search['organic'][0]['title'])\n"
+            "    # step 3: sequential dependent call\n"
+            "    event = await tools['create-event'](calendarId=cals[0]['id'], summary='test')\n"
             "    return {'event': event['summary'], 'repos': repos.get('total_count', 0)}"
         )
 
@@ -216,8 +220,10 @@ async def list_tools():
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            f"MCP servers to load on demand. Available: {servers_desc}. "
-                            "Cached — loading an already-connected server is instant."
+                            f"MCP servers to connect and load tools from. Servers are lazy — they only connect when listed here. "
+                            f"Available: {servers_desc}. "
+                            "Once connected, subsequent calls with the same server are instant. "
+                            "Pass all servers you need for the task."
                         ),
                     },
                     "timeout": {
@@ -246,25 +252,54 @@ async def call_tool(name: str, arguments: dict):
     servers = arguments.get("servers", [])
     original_timeout = _cm.timeout
 
-    logger.info("run_python | code (%d chars):\n%s", len(code), code)
+    logger.info("=" * 60)
+    logger.info("RUN_PYTHON START | servers=%s | timeout=%s | code (%d chars):\n%s",
+                servers or "none", timeout or "default", len(code), code)
 
     t0 = time.time()
     try:
+        # Lazy server loading
         if servers and _loader:
             for server_name in servers:
                 try:
+                    load_start = time.time()
                     new_tools = await _loader.load_server(server_name)
+                    load_elapsed = time.time() - load_start
                     for tool_name, tool_fn in new_tools.items():
                         _cm.tools[tool_name] = tool_fn
                         _cm._proxy._tools[tool_name] = tool_fn
-                    logger.info("On-demand loaded server '%s': %s", server_name, list(new_tools.keys()))
+                    logger.info("SERVER LOADED | '%s' | %d tools | %.2fs | tools: %s",
+                                server_name, len(new_tools), load_elapsed, list(new_tools.keys()))
                 except Exception as e:
-                    logger.warning("Failed to load server '%s': %s", server_name, e)
+                    logger.warning("SERVER FAILED | '%s' | %s", server_name, e)
+
+        logger.info("TOOLS AVAILABLE | %d total | %s", len(_cm.tools), sorted(_cm.tools.keys()))
 
         if timeout and isinstance(timeout, int):
             _cm.timeout = timeout
         result = await _cm.run_code(code)
         elapsed = time.time() - t0
+
+        tool_calls = result.get("tool_calls", [])
+        succeeded = sum(1 for tc in tool_calls if tc.get("success"))
+        failed = sum(1 for tc in tool_calls if not tc.get("success"))
+
+        for tc in tool_calls:
+            status = "OK" if tc.get("success") else "FAIL"
+            logger.info("  TOOL %s | %s | %.3fs | args=%s",
+                        status, tc.get("name"), tc.get("duration", 0),
+                        str(tc.get("kwargs", tc.get("args", "")))[:150])
+            if not tc.get("success") and tc.get("error"):
+                logger.warning("  TOOL ERROR | %s: %s", tc.get("name"), tc.get("error")[:200])
+
+        logger.info("RUN_PYTHON %s | %.2fs | tool_calls=%d (ok=%d fail=%d) | backend=%s",
+                    "SUCCESS" if result.get("success") else "FAILED",
+                    elapsed, len(tool_calls), succeeded, failed,
+                    result.get("backend", "?"))
+        if not result.get("success"):
+            logger.warning("RUN_PYTHON ERROR | %s", result.get("error", "unknown")[:300])
+        logger.info("=" * 60)
+
         output = {
             "success": result.get("success", False),
             "output": result.get("output"),
@@ -273,12 +308,14 @@ async def call_tool(name: str, arguments: dict):
             "backend": result.get("backend"),
             "tool_calls": [
                 {"name": tc.get("name"), "success": tc.get("success")}
-                for tc in result.get("tool_calls", [])
+                for tc in tool_calls
             ],
         }
         return [TextContent(type="text", text=json.dumps(output, indent=2, default=str))]
     except Exception as e:
         elapsed = time.time() - t0
+        logger.error("RUN_PYTHON EXCEPTION | %.2fs | %s: %s", elapsed, type(e).__name__, e)
+        logger.info("=" * 60)
         return [TextContent(type="text", text=json.dumps({
             "success": False, "error": str(e), "duration": round(elapsed, 2),
         }))]
@@ -289,7 +326,7 @@ async def call_tool(name: str, arguments: dict):
 async def main():
     async with _exit_stack:
         await init()
-        logger.info("Codemode MCP server ready with %d tools from %d servers", len(_tool_names), len(_server_names))
+        logger.info("Codemode MCP server ready with %d servers registered (lazy loading)", len(_server_names))
         async with stdio_server() as (read_stream, write_stream):
             await app.run(read_stream, write_stream, app.create_initialization_options())
 
