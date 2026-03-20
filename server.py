@@ -51,6 +51,7 @@ app = Server("codemode-mcp-server")
 
 _cm = None
 _server_names = []
+_server_descriptions = {}  # name -> description
 _exit_stack = AsyncExitStack()
 _loader = None
 
@@ -73,14 +74,16 @@ def load_server_configs():
             with open(os.path.join(mcps_dir, f)) as fh:
                 data = json.load(fh)
             for name, cfg in data.get("mcpServers", {}).items():
+                desc = cfg.get("description", "")
                 if cfg.get("type") == "sse" or "url" in cfg:
-                    configs.append({"name": name, "type": "sse", "url": cfg["url"]})
+                    configs.append({"name": name, "type": "sse", "url": cfg["url"], "description": desc})
                 elif "command" in cfg:
                     configs.append({
                         "name": name, "type": "stdio",
                         "command": cfg["command"],
                         "args": cfg.get("args", []),
                         "env": cfg.get("env"),
+                        "description": desc,
                     })
         except Exception as e:
             logger.warning("Failed to load %s: %s", f, e)
@@ -95,7 +98,7 @@ async def init():
     This keeps startup instant and avoids connecting to servers the
     agent may never use.
     """
-    global _cm, _server_names, _loader
+    global _cm, _server_names, _server_descriptions, _loader
 
     configs = load_server_configs()
     _loader = MCPToolLoader()
@@ -117,6 +120,7 @@ async def init():
             logger.error("Failed to register %s: %s", cfg["name"], e)
 
     _server_names = [cfg.name for cfg in _loader._configs]
+    _server_descriptions = {cfg["name"]: cfg.get("description", "") for cfg in configs}
 
     await _exit_stack.enter_async_context(_loader)
 
@@ -130,7 +134,13 @@ async def init():
 
 @app.list_tools()
 async def list_tools():
-    servers_desc = ", ".join(_server_names) if _server_names else "none configured"
+    if _server_descriptions:
+        servers_desc = ", ".join(
+            f"{name} ({desc})" if desc else name
+            for name, desc in _server_descriptions.items()
+        )
+    else:
+        servers_desc = ", ".join(_server_names) if _server_names else "none configured"
     backend = _cm.backend_name if _cm else "podman"
     is_podman = backend == "podman"
 

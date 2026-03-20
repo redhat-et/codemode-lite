@@ -23,7 +23,8 @@ sudo apt install podman   # or dnf, pacman, etc.
 
 **Pyodide WASM** — ephemeral WASM sandbox, no container needed
 ```bash
-npm install pyodide
+# Install in the codemode-lite directory (required)
+cd codemode-lite && npm install pyodide
 ```
 
 ### MCP servers

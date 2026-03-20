@@ -205,7 +205,7 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
 <section id="solution">
 <div class="container">
   <h2>The Solution</h2>
-  <p class="subtitle">An MCP server that wraps all your tools behind a single <code>run_python</code> tool. The agent writes Python code, and the code runs inside an isolated container with access to all tools via RPC.</p>
+  <p class="subtitle">An MCP server that wraps all your tools behind a single <code>run_python</code> tool. The agent writes Python code, and the code runs inside an isolated sandbox with access to all tools via RPC.</p>
 
   <div class="card-grid" style="grid-template-columns:1fr 80px 1fr 80px 1fr">
     <div class="card" style="border-color:rgba(78,168,255,0.3)">
@@ -213,7 +213,7 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
         <div class="card-icon" style="background:rgba(78,168,255,0.15);color:var(--accent-5)">&#129302;</div>
         <div class="card-title">Agent LLM</div>
       </div>
-      <div class="card-body">Sees 1 tool: <code>run_python</code>. Writes Python code with <code>await tools['name'](...)</code>. Any LLM, any MCP client.</div>
+      <div class="card-body">Sees 1 tool: <code>run_python</code>. Writes Python code, discovers tools at runtime, passes <code>servers=[...]</code> to load on demand. Works with any LLM (Claude, Gemini, GPT, etc.) and any MCP client.</div>
     </div>
     <div style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.5rem">&rarr;</div>
     <div class="card" style="border-color:rgba(0,212,170,0.3)">
@@ -221,7 +221,7 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
         <div class="card-icon" style="background:rgba(0,212,170,0.15);color:var(--accent)">&#9881;</div>
         <div class="card-title">Codemode Server</div>
       </div>
-      <div class="card-body">MCP server over stdio. Connects to all your MCP servers on startup. Routes tool calls from sandbox to real servers.</div>
+      <div class="card-body">MCP server over stdio. Registers MCP servers at startup, connects lazily on first use. Routes tool calls from sandbox to real servers via ToolProxy.</div>
     </div>
     <div style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.5rem">&rarr;</div>
     <div class="card" style="border-color:rgba(255,107,107,0.3)">
@@ -229,9 +229,28 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
         <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#128230;</div>
         <div class="card-title">Podman Sandbox</div>
       </div>
-      <div class="card-body">Rootless container. No network, read-only filesystem, all capabilities dropped. Code executes here. Tool calls go through RPC.</div>
+      <div class="card-body">Rootless container. Persistent state, top-level await, server proxies. No network, read-only FS, all caps dropped.</div>
     </div>
   </div>
+
+  <div class="card-grid" style="grid-template-columns:1fr 80px 1fr 80px 1fr;margin-top:0.5rem">
+    <div class="card" style="border:1px dashed var(--border);opacity:0.5">
+      <div class="card-body" style="text-align:center;padding:0.5rem;font-size:0.75rem;color:var(--text-muted)">same agent</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.5rem">&rarr;</div>
+    <div class="card" style="border:1px dashed var(--border);opacity:0.5">
+      <div class="card-body" style="text-align:center;padding:0.5rem;font-size:0.75rem;color:var(--text-muted)">same server</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:1.5rem">&rarr;</div>
+    <div class="card" style="border-color:rgba(255,217,61,0.3)">
+      <div class="card-header">
+        <div class="card-icon" style="background:rgba(255,217,61,0.15);color:var(--accent-4)">&#9889;</div>
+        <div class="card-title">Pyodide WASM Sandbox</div>
+      </div>
+      <div class="card-body">Python in WebAssembly via Node.js. Fresh per call, no persistence. Requires <code>async def main()</code>. V8 memory isolation.</div>
+    </div>
+  </div>
+  <p style="color:var(--text-dim);font-size:0.75rem;margin-top:0.75rem;text-align:center">Switch backends via <code>CODEMODE_BACKEND=podman</code> or <code>CODEMODE_BACKEND=pyodide-wasm</code></p>
 
   <h3 style="margin-top:2.5rem">Key capabilities</h3>
   <div class="card-grid" style="grid-template-columns:repeat(3,1fr)">

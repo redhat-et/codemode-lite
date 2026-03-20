@@ -70,11 +70,15 @@ class PyodideWasmBackend(SandboxBackend):
             return False
 
         # Verify that the pyodide npm package can be required
+        # Use the project root (two levels up from this file) as cwd
+        # so Node.js can find node_modules/ installed there
+        runner_dir = str(Path(__file__).parent.parent.parent)
         try:
             result = subprocess.run(
                 [self._node_path, "-e", "require('pyodide')"],
                 capture_output=True,
                 timeout=10,
+                cwd=runner_dir,
             )
             if result.returncode != 0:
                 logger.debug(
@@ -107,12 +111,15 @@ class PyodideWasmBackend(SandboxBackend):
 
         try:
             # ---- 1. Spawn Node.js with the Pyodide runner ----------------
+            # Set cwd to project root so Node.js can find node_modules/pyodide
+            project_root = str(Path(__file__).parent.parent.parent)
             process = await asyncio.create_subprocess_exec(
                 self._node_path,
                 _RUNNER_PATH,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=project_root,
             )
 
             logger.info(
