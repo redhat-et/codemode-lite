@@ -3,7 +3,6 @@ import ast
 import asyncio
 import importlib
 import logging
-import time
 from typing import Callable
 
 from .proxy import ToolProxy
@@ -58,7 +57,7 @@ class CodeMode:
         return instance
 
     @staticmethod
-    def validate_code(code: str) -> tuple[bool, str]:
+    def validate_code(code: str, require_main: bool = True) -> tuple[bool, str]:
         """Check code for syntax errors and forbidden imports."""
         try:
             tree = ast.parse(code)
@@ -80,7 +79,7 @@ class CodeMode:
             elif isinstance(node, ast.AsyncFunctionDef) and node.name == "main":
                 has_async_main = True
 
-        if not has_async_main:
+        if require_main and not has_async_main:
             return False, "Missing async def main() function"
 
         return True, "OK"
@@ -88,20 +87,18 @@ class CodeMode:
     async def run_code(self, code: str) -> dict:
         """Execute pre-written code directly (no LLM generation)."""
         logger.info("RUN_CODE | code_length=%d", len(code))
+        self._proxy.clear_log()
 
         # Validate code — check syntax and forbidden imports
         supports_top_level_await = self.backend_name == "podman" and self.persistent
-        valid, msg = self.validate_code(code)
+        valid, msg = self.validate_code(code, require_main=not supports_top_level_await)
         if not valid:
-            if "Missing async def main()" in msg and supports_top_level_await:
-                logger.info("RUN_CODE | skipping main() check (top-level await supported)")
-            else:
-                logger.warning("RUN_CODE VALIDATE | FAILED: %s", msg)
-                return {
-                    "success": False,
-                    "error": msg,
-                    "backend": self._backend.get_name(),
-                }
+            logger.warning("RUN_CODE VALIDATE | FAILED: %s", msg)
+            return {
+                "success": False,
+                "error": msg,
+                "backend": self._backend.get_name(),
+            }
 
         sandbox_tools = self._proxy.as_sandbox_globals()
         sandbox_tools.update(self._build_discovery_helpers())

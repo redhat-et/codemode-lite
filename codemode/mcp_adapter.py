@@ -121,6 +121,7 @@ class MCPConnection:
             try:
                 msg = json.loads(data)
             except json.JSONDecodeError:
+                logger.warning("MCP '%s' malformed SSE data: %s", self.config.name, data[:200])
                 return
             self._resolve_jsonrpc_response(msg)
 
@@ -197,7 +198,10 @@ class MCPConnection:
     async def _reconnect_sse(self):
         for future in self._pending.values():
             if not future.done():
-                future.set_exception(RuntimeError("SSE reconnecting"))
+                future.set_exception(RuntimeError(
+                    f"SSE connection to '{self.config.name}' was reset. "
+                    f"This in-flight request was lost — retry the tool call."
+                ))
         self._pending.clear()
         if self._reader_task:
             self._reader_task.cancel()
@@ -225,10 +229,19 @@ class MCPConnection:
             while True:
                 line = await self._process.stdout.readline()
                 if not line:
+                    # Process died — fail all pending futures immediately
+                    for req_id, future in list(self._pending.items()):
+                        if not future.done():
+                            future.set_exception(RuntimeError(
+                                f"MCP server '{self.config.name}' process exited "
+                                f"(returncode={self._process.returncode})"
+                            ))
+                    self._pending.clear()
                     break
                 try:
                     msg = json.loads(line.decode().strip())
                 except json.JSONDecodeError:
+                    logger.warning("MCP '%s' non-JSON output: %s", self.config.name, line.decode(errors='replace').strip()[:200])
                     continue
                 self._resolve_jsonrpc_response(msg)
         except asyncio.CancelledError:
@@ -268,27 +281,6 @@ class MCPToolLoader:
 
     def add_sse_server(self, name, url):
         self._configs.append(MCPServerConfig(name=name, transport="sse", url=url))
-
-    async def load_tools(self) -> dict[str, Callable]:
-        failed = []
-        for config in self._configs:
-            conn = MCPConnection(config)
-            try:
-                await conn.connect()
-                tools = await conn.list_tools()
-                self._connections.append(conn)
-                for tool_def in tools:
-                    tool_def["_server"] = config.name
-                    self._tools[tool_def["name"]] = self._make_tool_callable(conn, tool_def)
-                logger.info("MCP '%s': loaded %d tools", config.name, len(tools))
-            except Exception as e:
-                logger.error("Failed to connect to '%s': %s", config.name, e)
-                failed.append((config.name, e))
-                await conn.close()
-
-        if failed and not self._tools:
-            raise ConnectionError(f"All MCP servers failed: {', '.join(n for n, _ in failed)}")
-        return dict(self._tools)
 
     def _make_tool_callable(self, conn, tool_def):
         mcp_name = tool_def["name"]

@@ -35,7 +35,10 @@ class ToolProxy:
             args = ()
 
         # Strip None values
-        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        none_keys = [k for k, v in kwargs.items() if v is None]
+        if none_keys:
+            logger.debug("Stripping None-valued args: %s", none_keys)
+            kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
         try:
             if asyncio.iscoroutinefunction(fn):

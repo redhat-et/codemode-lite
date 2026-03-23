@@ -282,6 +282,11 @@ async def call_tool(name: str, arguments: dict):
                                 server_name, len(new_tools), load_elapsed, list(new_tools.keys()))
                 except Exception as e:
                     logger.warning("SERVER FAILED | '%s' | %s", server_name, e)
+                    return [TextContent(type="text", text=json.dumps({
+                        "success": False,
+                        "error": f"Failed to connect to server '{server_name}': {e}",
+                        "duration": round(time.time() - t0, 2),
+                    }))]
 
         logger.info("TOOLS AVAILABLE | %d total | %s", len(_cm.tools), sorted(_cm.tools.keys()))
 

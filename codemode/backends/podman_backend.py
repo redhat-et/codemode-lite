@@ -66,7 +66,6 @@ class PodmanBackend(SandboxBackend):
         # Persistent container state
         self._process: asyncio.subprocess.Process | None = None
         self._ipc_dir: str | None = None
-        self._persistent_namespace = None  # Feature 1 compatibility
 
     @staticmethod
     def _detect_runtime() -> str | None:
@@ -306,18 +305,20 @@ class PodmanBackend(SandboxBackend):
                     result = eval(compiled, _NS, _NS)
                     if inspect.isawaitable(result):
                         await result
+                    return True
                 except SystemExit:
                     raise
                 except BaseException:
                     traceback.print_exc()
+                    return False
 
             # ---- Main Loop ----
             async def _main_loop():
                 asyncio.create_task(_stdin_reader())
                 while True:
                     code = await _EXEC_QUEUE.get()
-                    await _execute_code(code)
-                    _send({{"type": "execution_done"}})
+                    ok = await _execute_code(code)
+                    _send({{"type": "execution_done", "success": ok}})
 
             if __name__ == "__main__":
                 try:
@@ -380,11 +381,8 @@ class PodmanBackend(SandboxBackend):
                     stderr=asyncio.subprocess.PIPE,
                 )
 
-                if persistent:
-                    self._process = process
-                    self._ipc_dir = ipc_dir
-                else:
-                    self._ipc_dir = ipc_dir  # for cleanup in finally
+                self._process = process
+                self._ipc_dir = ipc_dir
 
             # ---- Send execute command ----
             execute_msg = json.dumps({"type": "execute", "code": code}) + "\n"
@@ -396,8 +394,10 @@ class PodmanBackend(SandboxBackend):
             # ---- Read output and handle RPC ----
             stdout_chunks: list[str] = []
             stderr_chunks: list[str] = []
+            execution_success = True
 
             async def _handle_output():
+                nonlocal execution_success
                 async for raw_line in process.stdout:
                     try:
                         msg = json.loads(raw_line.decode())
@@ -416,7 +416,9 @@ class PodmanBackend(SandboxBackend):
                         logger.debug("PODMAN | ← stderr: %s", msg.get("data", "")[:100])
 
                     elif msg_type == "execution_done":
-                        logger.info("PODMAN | ← execution_done")
+                        if not msg.get("success", True):
+                            execution_success = False
+                        logger.info("PODMAN | ← execution_done (success=%s)", msg.get("success", True))
                         break
 
                     elif msg_type == "rpc_request":
@@ -540,8 +542,20 @@ class PodmanBackend(SandboxBackend):
                             }
 
                         reply_data = json.dumps(reply, default=str).encode("utf-8") + b"\n"
-                        process.stdin.write(reply_data)
-                        await process.stdin.drain()
+                        try:
+                            process.stdin.write(reply_data)
+                            await process.stdin.drain()
+                        except (BrokenPipeError, ConnectionResetError, OSError):
+                            rc = process.returncode
+                            stderr_tail = ""
+                            try:
+                                stderr_tail = (await process.stderr.read(4096)).decode(errors="replace")
+                            except Exception:
+                                pass
+                            raise RuntimeError(
+                                f"Container died (exit={rc}, possible OOM with "
+                                f"memory limit {self._memory}). stderr: {stderr_tail}"
+                            )
 
             # ---- Execute with timeout ----
             output_task = asyncio.create_task(_handle_output())
@@ -572,17 +586,8 @@ class PodmanBackend(SandboxBackend):
                 except (json.JSONDecodeError, TypeError):
                     output = stdout_text
 
-            # ---- Cleanup for non-persistent mode ----
-            if not persistent:
-                process.stdin.close()
-                process.kill()
-                await process.wait()
-                if self._ipc_dir:
-                    shutil.rmtree(self._ipc_dir, ignore_errors=True)
-                    self._ipc_dir = None
-
             return ExecutionResult(
-                success=True,
+                success=execution_success,
                 output=output,
                 error=stderr_text if stderr_text.strip() else None,
                 duration=duration,
@@ -610,6 +615,16 @@ class PodmanBackend(SandboxBackend):
                 duration=duration,
                 tool_calls=tool_calls,
             )
+
+    async def close(self) -> None:
+        """Kill the container process and clean up the IPC directory."""
+        if self._process and self._process.returncode is None:
+            self._process.kill()
+            await self._process.wait()
+        self._process = None
+        if self._ipc_dir:
+            shutil.rmtree(self._ipc_dir, ignore_errors=True)
+            self._ipc_dir = None
 
     def is_available(self) -> bool:
         if not self._runtime:

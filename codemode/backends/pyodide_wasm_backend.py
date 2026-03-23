@@ -169,25 +169,33 @@ class PyodideWasmBackend(SandboxBackend):
             # inside the generated code actually runs tools concurrently.
             remaining = timeout - (time.monotonic() - start)
             pending_calls: list[dict] = []
+            deferred_result: dict | None = None
 
             while remaining > 0:
-                # Read next line (or batch — short timeout for batching)
-                line = await asyncio.wait_for(
-                    process.stdout.readline(), timeout=remaining
-                )
-                if not line:
-                    break
-
-                msg = _parse_json_line(line)
-                if msg is None:
-                    logger.warning(
-                        "PYODIDE WASM | non-JSON line from runner: %s",
-                        line.decode().strip()[:200],
+                # If we have a deferred result from the batching window,
+                # process it now instead of reading another line.
+                if deferred_result is not None:
+                    msg = deferred_result
+                    msg_type = "result"
+                    deferred_result = None
+                else:
+                    # Read next line (or batch — short timeout for batching)
+                    line = await asyncio.wait_for(
+                        process.stdout.readline(), timeout=remaining
                     )
-                    remaining = timeout - (time.monotonic() - start)
-                    continue
+                    if not line:
+                        break
 
-                msg_type = msg.get("type")
+                    msg = _parse_json_line(line)
+                    if msg is None:
+                        logger.warning(
+                            "PYODIDE WASM | non-JSON line from runner: %s",
+                            line.decode().strip()[:200],
+                        )
+                        remaining = timeout - (time.monotonic() - start)
+                        continue
+
+                    msg_type = msg.get("type")
 
                 if msg_type == "tool_call":
                     pending_calls.append(msg)
@@ -205,19 +213,22 @@ class PyodideWasmBackend(SandboxBackend):
                             if next_msg and next_msg.get("type") == "tool_call":
                                 pending_calls.append(next_msg)
                             elif next_msg and next_msg.get("type") == "result":
-                                # Edge case: result came before we processed calls
-                                pending_calls.clear()
-                                msg = next_msg
-                                msg_type = "result"
+                                # Result arrived during batching window;
+                                # defer it so pending tool calls execute first.
+                                logger.warning(
+                                    "PYODIDE WASM | result arrived during batching "
+                                    "window with %d pending tool call(s); "
+                                    "deferring result",
+                                    len(pending_calls),
+                                )
+                                deferred_result = next_msg
                                 break
                             else:
                                 break
                         except asyncio.TimeoutError:
                             break  # No more pending calls in the buffer
 
-                    if msg_type == "result":
-                        pass  # Fall through to result handler below
-                    elif pending_calls:
+                    if pending_calls:
                         # Execute all pending tool calls in parallel
                         if len(pending_calls) > 1:
                             logger.info(
@@ -452,5 +463,8 @@ async def _drain_stderr(process: asyncio.subprocess.Process) -> str:
     try:
         data = await asyncio.wait_for(process.stderr.read(), timeout=2)
         return data.decode(errors="replace")
-    except (asyncio.TimeoutError, Exception):
+    except asyncio.TimeoutError:
+        return "<stderr unavailable>"
+    except Exception as exc:
+        logger.warning("Failed to read stderr: %s", exc)
         return "<stderr unavailable>"
