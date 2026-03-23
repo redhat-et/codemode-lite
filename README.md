@@ -1,6 +1,6 @@
 # codemode-lite
 
-An MCP server that lets AI agents execute Python code inside a secure sandbox. Instead of exposing 30+ individual tools to the agent, it exposes one tool — `run_python` — and the agent writes Python code that calls all the tools from inside the sandbox.
+An MCP server that lets AI agents execute Python code inside a secure sandbox. Instead of exposing all individual tools to the agent, it exposes one tool — `run_python` — and the agent writes Python code that calls all the tools from inside the sandbox. Tested with 38 tools across 4 MCP servers, but works with any number of tools and servers you configure.
 
 ## Prerequisites
 

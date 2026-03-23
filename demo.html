@@ -142,7 +142,7 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
 <section>
 <div class="container">
   <h1>Code Execution with MCP</h1>
-  <p class="subtitle">Instead of giving an AI agent 30+ tools, give it one: <strong>write and run code</strong>. The code calls the tools inside a secure sandbox.</p>
+  <p class="subtitle">Instead of giving an AI agent every tool individually, give it one: <strong>write and run code</strong>. The code calls the tools inside a secure sandbox. We tested with 38 tools across 4 MCP servers — but it works with any number.</p>
 
   <div class="stat-grid">
     <div class="stat">
@@ -150,8 +150,8 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
       <div class="stat-label">tool exposed to agent</div>
     </div>
     <div class="stat">
-      <div class="stat-num" style="color:var(--accent-5)">30+</div>
-      <div class="stat-label">tools available inside</div>
+      <div class="stat-num" style="color:var(--accent-5)">38</div>
+      <div class="stat-label">tools tested (scales to any)</div>
     </div>
     <div class="stat">
       <div class="stat-num" style="color:var(--accent-4)">53%</div>
@@ -176,7 +176,7 @@ h3 { font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; }
         <div class="card-icon" style="background:rgba(255,107,107,0.15);color:var(--accent-3)">&#9888;</div>
         <div class="card-title">Tool schemas bloat the context</div>
       </div>
-      <div class="card-body">Every MCP tool carries a full JSON Schema definition. With 30+ tools from Calendar, GitHub, and Search servers, that's <strong>~15,000 tokens</strong> of schemas injected into every single turn. Those tokens are billed every time.</div>
+      <div class="card-body">Every MCP tool carries a full JSON Schema definition. With 38 tools from Calendar, GitHub, Search, and Unit Converter servers, that's <strong>~15,000 tokens</strong> of schemas injected into every single turn. Add more servers and it only gets worse. Those tokens are billed every time.</div>
     </div>
     <div class="card">
       <div class="card-header">
